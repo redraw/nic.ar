@@ -65,4 +65,5 @@ jobs:
       - name: Upload database to R2
         if: steps.update.outputs.changed == 'true'
         run: |
-          aws s3 cp data/rdlist.duckdb "s3://$R2_BUCKET/$R2_OBJECT_KEY"
+          aws s3 cp data/rdlist.duckdb "s3://$R2_BUCKET/$R2_OBJECT_KEY" \
+            --cache-control 'public, max-age=7200'
