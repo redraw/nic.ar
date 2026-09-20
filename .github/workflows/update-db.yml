@@ -1,0 +1,68 @@
+name: Update RDList database
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Initial full history or routine incremental update
+        type: choice
+        options: [latest, bootstrap]
+        default: latest
+  schedule:
+    - cron: '0 8 * * *'
+
+concurrency:
+  group: rdlist-database
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  R2_BUCKET: ${{ vars.R2_BUCKET }}
+  R2_OBJECT_KEY: rdlist.duckdb
+  AWS_REGION: auto
+  AWS_ENDPOINT_URL: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+  AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  AWS_EC2_METADATA_DISABLED: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: astral-sh/setup-uv@v5
+      - name: Restore canonical database from R2
+        id: restore
+        run: |
+          if [ -z "$R2_BUCKET" ] || [ "$AWS_ENDPOINT_URL" = 'https://.r2.cloudflarestorage.com' ]; then
+            echo 'R2_BUCKET and R2_ACCOUNT_ID GitHub variables must be set.' >&2
+            exit 1
+          fi
+          mkdir -p data
+          if aws s3api head-object --bucket "$R2_BUCKET" --key "$R2_OBJECT_KEY" >/dev/null 2>restore-error.log; then
+            aws s3 cp "s3://$R2_BUCKET/$R2_OBJECT_KEY" data/rdlist.duckdb
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          elif grep -Eq '(404|Not Found|NoSuchKey)' restore-error.log; then
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+          else
+            cat restore-error.log >&2
+            exit 1
+          fi
+      - name: Update database
+        id: update
+        run: |
+          MODE="${{ inputs.mode || 'latest' }}"
+          if [ "${{ steps.restore.outputs.found }}" = false ] && [ "$MODE" = latest ]; then MODE=bootstrap; fi
+          RESULT=$(uv run --with-requirements requirements.txt python scripts/update_db.py "$MODE" --database data/rdlist.duckdb)
+          echo "$RESULT"
+          echo "changed=${RESULT#changed=}" >> "$GITHUB_OUTPUT"
+      - name: Upload database to R2
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          aws s3 cp data/rdlist.duckdb "s3://$R2_BUCKET/$R2_OBJECT_KEY"
