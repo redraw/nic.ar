@@ -131,30 +131,6 @@ def normalize_domain_record(source_date: str, row_number: int, row: dict[str, st
     )
 
 
-def populate_domain_records_from_raw(con: duckdb.DuckDBPyConnection) -> None:
-    """One-time migration support for databases created before domain_records."""
-    con.execute("""
-      INSERT INTO domain_records
-      WITH extracted AS (
-        SELECT source_date, row_number, json_transform(payload, '{
-          "dominio":"VARCHAR", "zona":"VARCHAR", "id_dominio":"VARCHAR",
-          "tipo":"VARCHAR", "fecha_registro":"VARCHAR", "titular":"VARCHAR",
-          "tipo_doc":"VARCHAR", "numero_doc":"VARCHAR"
-        }') AS fields FROM records
-      ), normalized AS (
-        SELECT *, nullif(lower(trim(trim(fields.dominio), '.')), '') AS domain_name,
-          nullif(lower(trim(trim(fields.zona), '.')), '') AS zone FROM extracted
-      )
-      SELECT source_date, row_number,
-        CASE WHEN domain_name IS NOT NULL AND zone IS NOT NULL
-          THEN domain_name || '.' || zone END AS domain,
-        domain_name, zone, nullif(fields.id_dominio, ''), nullif(fields.tipo, ''),
-        try_cast(fields.fecha_registro AS TIMESTAMP), nullif(fields.titular, ''),
-        nullif(fields.tipo_doc, ''), nullif(fields.numero_doc, '')
-      FROM normalized ORDER BY domain, source_date, row_number
-    """)
-
-
 def ensure_schema(con: duckdb.DuckDBPyConnection) -> bool:
     """Create/migrate atomically; return whether the catalog changed."""
     con.execute("BEGIN TRANSACTION")
@@ -184,11 +160,6 @@ def _ensure_schema(con: duckdb.DuckDBPyConnection) -> bool:
       WHERE table_catalog = current_database() AND table_schema = 'main'
         AND table_name = 'domain_records'
     """).fetchone()[0]
-    records_exists = con.execute("""
-      SELECT count(*) FROM information_schema.tables
-      WHERE table_catalog = current_database() AND table_schema = 'main'
-        AND table_name = 'records'
-    """).fetchone()[0]
     changed = False
     if not domain_records_exists:
         con.execute("""
@@ -200,13 +171,6 @@ def _ensure_schema(con: duckdb.DuckDBPyConnection) -> bool:
         PRIMARY KEY (source_date, row_number)
           )
         """)
-        changed = True
-        if records_exists:
-            LOG.info("Materializing typed domain records from the legacy raw table")
-            populate_domain_records_from_raw(con)
-    if records_exists:
-        con.execute("DROP VIEW IF EXISTS record_fields")
-        con.execute("DROP TABLE records")
         changed = True
     return changed
 
