@@ -2,38 +2,47 @@
 
 ## Project Structure & Module Organization
 
-This repository builds and explores a historical NIC Argentina RDList dataset.
+This repository maintains the historical NIC Argentina RDList dataset as a normalized DuckDB database.
 
-- `scripts/update_db.py` downloads, validates, normalizes, and migrates the DuckDB database.
-- `scripts/prepare_web_data.py` copies the database as a static asset named with the first 10 characters of its SHA-256 and writes its manifest.
-- `tests/test_update_db.py` contains Python tests for parsing, schema migration, and transactional imports.
-- `data/` holds the local `rdlist.duckdb` database. Database files are generated and ignored by Git; retain `data/.gitkeep` only.
-- `web/` is the Vite + React + TypeScript viewer. Application code is in `web/src/`; production output in `web/dist/` is generated.
+- `scripts/update_db.py` is the application entry point. It discovers RDList listings, downloads CSVs, verifies their published SHA-256 hashes, and imports them transactionally.
+- `data/` is the local working location for `rdlist.duckdb`. Database files are generated and ignored; retain `data/.gitkeep` only.
+- `.github/workflows/update-db.yml` runs the scheduled/manual refresh. It restores the canonical database from Cloudflare R2, updates it, and uploads it only when the dataset changed.
+- `requirements.txt` declares the runtime dependencies: DuckDB and Requests.
+
+The database contains `sources` (one validated NIC CSV per source date), `domain_records` (the normalized rows), and the `dataset_status` view. Legacy `records` data is migrated into `domain_records` and then removed.
 
 ## Build, Test, and Development Commands
 
-Install the Python dependencies with `uv venv && uv pip install -r requirements.txt` and JavaScript dependencies with `npm install`.
+Create an isolated Python environment with `uv venv && uv pip install -r requirements.txt`.
 
-- `npm test` runs the Python test suite quietly with pytest.
-- `uv run --with-requirements requirements.txt python scripts/update_db.py bootstrap` downloads the complete dataset into `data/rdlist.duckdb`.
-- `uv run --with-requirements requirements.txt python scripts/update_db.py latest` refreshes the most recent listing pages; use `migrate` for an offline schema upgrade.
-- `npm run build` copies the DuckDB as a content-addressed asset, writes `rdlist.json`, type-checks the web app, and produces `web/dist/`.
-- `npx serve web/dist` serves the production build for local testing.
+- `uv run --with-requirements requirements.txt python scripts/update_db.py bootstrap` downloads and imports the full published history into `data/rdlist.duckdb`.
+- `uv run --with-requirements requirements.txt python scripts/update_db.py latest` refreshes the three most recent listing pages; pass `--recent-pages N` to change that window.
+- `uv run --with-requirements requirements.txt python scripts/update_db.py migrate` performs the offline schema migration only.
+- Add `--database PATH` to operate on a temporary or alternate database, and `--log-level DEBUG` for diagnostic logging.
+
+The updater finishes by printing `changed=true` or `changed=false`; the GitHub Actions workflow relies on that exact output. There is currently no committed test suite, JavaScript application, or frontend build command.
 
 ## Coding Style & Naming Conventions
 
-Follow the existing conventions: Python uses four-space indentation, type annotations, `snake_case` functions and variables, and concise docstrings. Keep import logic transactional and preserve source SHA-256 validation. TypeScript uses two-space indentation, single quotes, semicolon-free statements, `camelCase` values/functions, and `PascalCase` React components. Keep UI copy in Spanish to match the existing interface.
+Use Python 3.12-compatible code, four-space indentation, type annotations, `snake_case` names, and concise docstrings. Match the compact style already used in `scripts/update_db.py`.
 
-No formatter or linter is configured. Match adjacent code and run the relevant tests and build before submitting changes.
+Preserve the ingestion guarantees: keep TLS verification enabled by default, verify every downloaded CSV against NIC's published SHA-256 before import, and keep source replacement atomic. Treat `--insecure` as temporary local troubleshooting only; use `--ca-bundle` for a trusted custom CA.
+
+Keep `sources` and `domain_records` consistent for each `source_date`. Schema changes belong in `ensure_schema`/`_ensure_schema` and must remain safe for existing databases. Normalize domain and zone values consistently (trim, remove outer dots, lowercase) and avoid turning missing values into misleading empty strings.
 
 ## Testing Guidelines
 
-Add pytest tests in `tests/test_<feature>.py`, naming cases `test_<behavior>`. Prefer isolated fixtures and temporary databases (`tmp_path`) over the checked-in local dataset. Cover parsing edge cases, hash failures, and database rollback behavior when modifying ingestion or migrations. Run `npm test`; for frontend changes also run `npm run build`.
+For changes to parsing, normalization, migration, or import logic, exercise the smallest appropriate mode against a temporary database using `--database`; do not overwrite `data/rdlist.duckdb` merely to validate a change. Add focused pytest coverage under `tests/` when introducing or changing behavior, preferably using `tmp_path` databases and mocked HTTP responses.
 
 ## Commit & Pull Request Guidelines
 
-Git history is not available in this checkout, so use concise imperative commit subjects, such as `Normalize empty domain zones`. Keep each commit focused. Pull requests should explain the user-visible or data-model impact, list validation commands, link the relevant issue when available, and include screenshots for UI changes. Do not commit `node_modules/`, `web/dist/`, caches, or generated DuckDB files.
+Use concise imperative commit subjects. Keep commits focused and describe data-model, ingestion, or automation impact in pull requests, including the commands run. Do not commit generated DuckDB files, credentials, caches, or R2 configuration.
 
 ## Security & Configuration
 
-Keep TLS verification enabled when updating data. Use `--ca-bundle` for a trusted custom certificate; reserve `--insecure` for temporary local troubleshooting.
+The scheduled workflow runs daily at 08:00 UTC and can be dispatched with `latest` or `bootstrap`. It requires these GitHub configuration values for R2:
+
+- Variables: `R2_BUCKET`, `R2_ACCOUNT_ID`
+- Secrets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+
+Keep the workflow's restore-update-upload flow intact so routine updates are incremental and a missing canonical object bootstraps correctly.

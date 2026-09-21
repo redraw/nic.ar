@@ -64,7 +64,7 @@ jobs:
           echo "$RESULT"
           echo "changed=${RESULT#changed=}" >> "$GITHUB_OUTPUT"
       - name: Export and upload database artifacts to R2
-        if: steps.update.outputs.changed == 'true'
+        if: steps.update.outputs.changed == 'true' || contains(github.event.head_commit.message, '[deploy]')
         run: |
           uv run --with-requirements requirements.txt python scripts/export_parquet.py \
             --database data/rdlist.duckdb --output data/rdlist.parquet
