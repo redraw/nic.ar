@@ -21,6 +21,7 @@ permissions:
 env:
   R2_BUCKET: ${{ vars.R2_BUCKET }}
   R2_OBJECT_KEY: rdlist.duckdb
+  R2_PARQUET_OBJECT_KEY: rdlist.parquet
   AWS_REGION: auto
   AWS_ENDPOINT_URL: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
   AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -62,8 +63,12 @@ jobs:
           RESULT=$(uv run --with-requirements requirements.txt python scripts/update_db.py "$MODE" --database data/rdlist.duckdb)
           echo "$RESULT"
           echo "changed=${RESULT#changed=}" >> "$GITHUB_OUTPUT"
-      - name: Upload database to R2
+      - name: Export and upload database artifacts to R2
         if: steps.update.outputs.changed == 'true'
         run: |
+          uv run --with-requirements requirements.txt python scripts/export_parquet.py \
+            --database data/rdlist.duckdb --output data/rdlist.parquet
           aws s3 cp data/rdlist.duckdb "s3://$R2_BUCKET/$R2_OBJECT_KEY" \
+            --cache-control 'public, max-age=7200'
+          aws s3 cp data/rdlist.parquet "s3://$R2_BUCKET/$R2_PARQUET_OBJECT_KEY" \
             --cache-control 'public, max-age=7200'
