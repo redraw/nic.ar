@@ -34,10 +34,11 @@ jobs:
     outputs:
       changed: ${{ steps.update.outputs.changed }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
       - name: Restore canonical database from R2
         id: restore
         run: |
@@ -60,13 +61,13 @@ jobs:
         run: |
           MODE="${{ inputs.mode || 'latest' }}"
           if [ "${{ steps.restore.outputs.found }}" = false ] && [ "$MODE" = latest ]; then MODE=bootstrap; fi
-          RESULT=$(uv run --with-requirements requirements.txt python scripts/update_db.py "$MODE" --database data/rdlist.duckdb)
+          RESULT=$(uv run --frozen python scripts/update_db.py "$MODE" --database data/rdlist.duckdb)
           echo "$RESULT"
           echo "changed=${RESULT#changed=}" >> "$GITHUB_OUTPUT"
       - name: Export and upload database artifacts to R2
         if: steps.update.outputs.changed == 'true' || contains(github.event.head_commit.message, '[deploy]')
         run: |
-          uv run --with-requirements requirements.txt python scripts/export_parquet.py \
+          uv run --frozen python scripts/export_parquet.py \
             --database data/rdlist.duckdb --output data/rdlist.parquet
           aws s3 cp data/rdlist.duckdb "s3://$R2_BUCKET/$R2_OBJECT_KEY" \
             --cache-control 'public, max-age=7200'

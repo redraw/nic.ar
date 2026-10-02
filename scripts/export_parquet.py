@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export normalized domain records from DuckDB to a Parquet file."""
+"""Exporta los registros de dominios normalizados de DuckDB a un archivo Parquet."""
 from __future__ import annotations
 
 import argparse
@@ -9,12 +9,12 @@ import duckdb
 
 
 def sql_string(value: Path) -> str:
-    """Return a SQL string literal for a filesystem path."""
+    """Devuelve un literal de cadena SQL para una ruta del sistema de archivos."""
     return "'" + str(value).replace("'", "''") + "'"
 
 
 def export_parquet(database: Path, output: Path) -> None:
-    """Write all normalized domain records to a Zstandard-compressed Parquet file."""
+    """Escribe todos los registros de dominios normalizados en un archivo Parquet comprimido con Zstandard."""
     output.parent.mkdir(parents=True, exist_ok=True)
     connection = duckdb.connect(str(database), read_only=True)
     try:

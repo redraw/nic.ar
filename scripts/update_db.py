@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Build the normalized NIC Argentina RDList DuckDB dataset.
+"""Construye el dataset normalizado RDList de NIC Argentina en DuckDB.
 
-The script deliberately downloads one listing and one CSV at a time.  A source
-row is committed only after its published SHA-256 matches the downloaded file.
+El script descarga deliberadamente un listado y un CSV a la vez. Una fila de
+origen se confirma solo después de que su SHA-256 publicado coincide con el
+archivo descargado.
 """
 from __future__ import annotations
 
@@ -31,14 +32,14 @@ LOG = logging.getLogger("rdlist")
 
 @dataclass(frozen=True)
 class Listing:
-    source_date: str  # ISO date
+    source_date: str  # fecha ISO
     published_hash: str
     certification: str | None
     csv_url: str
 
 
 class ListingParser(HTMLParser):
-    """Small, dependency-free parser for the NIC table and page links."""
+    """Parser pequeño y sin dependencias para la tabla y los enlaces de páginas de NIC."""
     def __init__(self, base_url: str):
         super().__init__()
         self.base_url, self.rows, self.pages = base_url, [], set()
@@ -107,7 +108,7 @@ def decode_csv(raw: bytes) -> tuple[list[str], list[dict[str, str]]]:
 
 
 def normalize_domain_record(source_date: str, row_number: int, row: dict[str, str]) -> tuple:
-    """Turn one NIC CSV row into the canonical, queryable representation."""
+    """Convierte una fila del CSV de NIC en la representación canónica y consultable."""
     def normalized_name(value: str | None) -> str | None:
         value = (value or "").strip().strip(".").lower()
         return value or None
@@ -132,7 +133,7 @@ def normalize_domain_record(source_date: str, row_number: int, row: dict[str, st
 
 
 def ensure_schema(con: duckdb.DuckDBPyConnection) -> bool:
-    """Create/migrate atomically; return whether the catalog changed."""
+    """Crea o migra de forma atómica; devuelve si el catálogo cambió."""
     con.execute("BEGIN TRANSACTION")
     try:
         changed = _ensure_schema(con)
@@ -219,7 +220,7 @@ def listings_for_mode(session: requests.Session, mode: str, recent_pages: int) -
         items, pages = fetch_page(session, page)
         if not items: break
         for item in items: yield item
-        # Only advance through the contiguous, published pagination sequence.
+        # Solo avanza por la secuencia de paginación contigua y publicada.
         if page + 1 not in pages: break
         page += 1
 
@@ -242,7 +243,7 @@ def download_listings(con: duckdb.DuckDBPyConnection, mode: str, recent_pages: i
                       verify: bool | str) -> bool:
     changed = False
     with requests.Session() as session:
-        # The session setting is shared by listing and CSV downloads alike.
+        # La configuración de la sesión se comparte tanto para los listados como para las descargas de CSV.
         session.verify = verify
         if verify is False:
             requests.packages.urllib3.disable_warnings(InsecureRequestWarning)

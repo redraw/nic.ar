@@ -1,0 +1,22 @@
+[project]
+name = "nic-ar-rdlist"
+version = "0.1.0"
+description = "Normalized NIC Argentina RDList dataset stored in DuckDB."
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.2,<2",
+    "requests>=2.31,<3",
+    "tqdm>=4.66,<5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv]
+# Los scripts bajo `scripts/` se ejecutan directamente, no se instalan como paquete.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

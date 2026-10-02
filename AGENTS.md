@@ -1,48 +1,53 @@
-# Repository Guidelines
+# Guías del repositorio
 
-## Project Structure & Module Organization
+## Estructura del proyecto y organización de módulos
 
-This repository maintains the historical NIC Argentina RDList dataset as a normalized DuckDB database.
+Este repositorio mantiene el dataset histórico RDList de NIC Argentina como una base de datos DuckDB normalizada.
 
-- `scripts/update_db.py` is the application entry point. It discovers RDList listings, downloads CSVs, verifies their published SHA-256 hashes, and imports them transactionally.
-- `data/` is the local working location for `rdlist.duckdb`. Database files are generated and ignored; retain `data/.gitkeep` only.
-- `.github/workflows/update-db.yml` runs the scheduled/manual refresh. It restores the canonical database from Cloudflare R2, updates it, and uploads it only when the dataset changed.
-- `requirements.txt` declares the runtime dependencies: DuckDB and Requests.
+- `scripts/update_db.py` es el punto de entrada de la aplicación. Descubre los listados de RDList, descarga los CSV, verifica sus hashes SHA-256 publicados y los importa de forma transaccional.
+- `data/` es la ubicación de trabajo local para `rdlist.duckdb`. Los archivos de base de datos se generan y se ignoran; conserve solo `data/.gitkeep`.
+- `.github/workflows/update-db.yml` ejecuta la actualización programada o manual. Restaura la base de datos canónica desde Cloudflare R2, la actualiza y la sube solo cuando el dataset cambió.
+- `pyproject.toml` declara las dependencias de ejecución (DuckDB, Requests, tqdm) y el grupo de dependencias `dev` (`pytest`); `uv.lock` fija las versiones resueltas exactas y se versiona.
+- `.python-version` fija el intérprete (`3.12`) que uv instala y usa.
 
-The database contains `sources` (one validated NIC CSV per source date), `domain_records` (the normalized rows), and the `dataset_status` view. Legacy `records` data is migrated into `domain_records` and then removed.
+La base de datos contiene `sources` (un CSV de NIC validado por fecha de origen), `domain_records` (las filas normalizadas) y la vista `dataset_status`. Los datos heredados de `records` se migran a `domain_records` y luego se eliminan.
 
-## Build, Test, and Development Commands
+## Comandos de compilación, prueba y desarrollo
 
-Create an isolated Python environment with `uv venv && uv pip install -r requirements.txt`.
+Cree y complete el entorno gestionado con `uv sync`, que crea `.venv`, resuelve contra `uv.lock` e instala tanto las dependencias de ejecución como las `dev`. Para ejecutar comandos, antepóngalos con `uv run`, que vuelve a sincronizar el entorno automáticamente.
 
-- `uv run --with-requirements requirements.txt python scripts/update_db.py bootstrap` downloads and imports the full published history into `data/rdlist.duckdb`.
-- `uv run --with-requirements requirements.txt python scripts/update_db.py latest` refreshes the three most recent listing pages; pass `--recent-pages N` to change that window.
-- `uv run --with-requirements requirements.txt python scripts/update_db.py migrate` performs the offline schema migration only.
-- Add `--database PATH` to operate on a temporary or alternate database, and `--log-level DEBUG` for diagnostic logging.
+- `uv sync` instala las dependencias bloqueadas de ejecución y `dev` en `.venv` (agregue `--no-dev` para solo ejecución).
+- `uv lock` vuelve a resolver dependencias y actualiza `uv.lock`; ejecútelo después de cambiar `pyproject.toml` y haga commit del resultado.
+- `uv sync --frozen` instala exactamente lo que especifica `uv.lock` sin volver a resolver; CI usa esto mediante `uv run --frozen`.
+- `uv run python scripts/update_db.py bootstrap` descarga e importa el historial publicado completo en `data/rdlist.duckdb`.
+- `uv run python scripts/update_db.py latest` actualiza las tres páginas de listado más recientes; pase `--recent-pages N` para cambiar esa ventana.
+- `uv run python scripts/update_db.py migrate` realiza solo la migración de esquema sin conexión.
+- `uv run pytest` ejecuta las pruebas unitarias bajo `tests/`.
+- Agregue `--database PATH` para operar sobre una base de datos temporal o alternativa, y `--log-level DEBUG` para registro de diagnóstico.
 
-The updater finishes by printing `changed=true` or `changed=false`; the GitHub Actions workflow relies on that exact output. There is currently no committed test suite, JavaScript application, or frontend build command.
+El actualizador termina imprimiendo `changed=true` o `changed=false`; el flujo de GitHub Actions depende de esa salida exacta. No hay aplicación JavaScript ni comando de compilación de frontend; `tests/` contiene la suite de pytest.
 
-## Coding Style & Naming Conventions
+## Estilo de código y convenciones de nombres
 
-Use Python 3.12-compatible code, four-space indentation, type annotations, `snake_case` names, and concise docstrings. Match the compact style already used in `scripts/update_db.py`.
+Use código compatible con Python 3.12, indentación de cuatro espacios, anotaciones de tipo, nombres en `snake_case` y docstrings concisos. Siga el estilo compacto que ya se usa en `scripts/update_db.py`.
 
-Preserve the ingestion guarantees: keep TLS verification enabled by default, verify every downloaded CSV against NIC's published SHA-256 before import, and keep source replacement atomic. Treat `--insecure` as temporary local troubleshooting only; use `--ca-bundle` for a trusted custom CA.
+Preserve las garantías de ingesta: mantenga la verificación TLS habilitada por defecto, verifique cada CSV descargado contra el SHA-256 publicado por NIC antes de importarlo y mantenga atómico el reemplazo de fuentes. Trate `--insecure` solo como una solución temporal de diagnóstico local; use `--ca-bundle` para una CA personalizada de confianza.
 
-Keep `sources` and `domain_records` consistent for each `source_date`. Schema changes belong in `ensure_schema`/`_ensure_schema` and must remain safe for existing databases. Normalize domain and zone values consistently (trim, remove outer dots, lowercase) and avoid turning missing values into misleading empty strings.
+Mantenga `sources` y `domain_records` consistentes para cada `source_date`. Los cambios de esquema pertenecen a `ensure_schema`/`_ensure_schema` y deben ser seguros para bases de datos existentes. Normalice los valores de dominio y zona de forma consistente (recortar, quitar puntos externos, minúsculas) y evite convertir valores faltantes en cadenas vacías engañosas.
 
-## Testing Guidelines
+## Guías de prueba
 
-For changes to parsing, normalization, migration, or import logic, exercise the smallest appropriate mode against a temporary database using `--database`; do not overwrite `data/rdlist.duckdb` merely to validate a change. Add focused pytest coverage under `tests/` when introducing or changing behavior, preferably using `tmp_path` databases and mocked HTTP responses.
+Para cambios en el análisis, la normalización, la migración o la lógica de importación, ejercite el modo más pequeño apropiado contra una base de datos temporal usando `--database`; no sobrescriba `data/rdlist.duckdb` solo para validar un cambio. Ejecute las pruebas unitarias con `uv run pytest`. Agregue cobertura de pytest enfocada bajo `tests/` al introducir o cambiar comportamiento, preferiblemente usando bases de datos `tmp_path` y respuestas HTTP simuladas.
 
-## Commit & Pull Request Guidelines
+## Guías de commits y pull requests
 
-Use concise imperative commit subjects. Keep commits focused and describe data-model, ingestion, or automation impact in pull requests, including the commands run. Do not commit generated DuckDB files, credentials, caches, or R2 configuration.
+Use asuntos de commit imperativos y concisos. Mantenga los commits enfocados y describa en las pull requests el impacto en el modelo de datos, la ingesta o la automatización, incluidos los comandos ejecutados. No haga commit de archivos DuckDB generados, credenciales, cachés ni configuración de R2.
 
-## Security & Configuration
+## Seguridad y configuración
 
-The scheduled workflow runs daily at 08:00 UTC and can be dispatched with `latest` or `bootstrap`. It requires these GitHub configuration values for R2:
+El flujo programado se ejecuta diariamente a las 08:00 UTC y puede despacharse con `latest` o `bootstrap`. Requiere estos valores de configuración de GitHub para R2:
 
 - Variables: `R2_BUCKET`, `R2_ACCOUNT_ID`
 - Secrets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 
-Keep the workflow's restore-update-upload flow intact so routine updates are incremental and a missing canonical object bootstraps correctly.
+Mantenga intacto el flujo de restaurar-actualizar-subir para que las actualizaciones rutinarias sean incrementales y un objeto canónico ausente haga bootstrap correctamente.
